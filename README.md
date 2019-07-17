@@ -2,6 +2,7 @@
 
 # Input Value
 
+|Vars|Example|
 |:-:|:-:|
 |ReadOnlyGroupMember|'tom, jack'|
 |ReadWriteGroupMember|'tom'|
