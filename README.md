@@ -2,10 +2,11 @@
 
 # Input Value
 
-1.ReadOnlyGroupMember		'tom, jack'
-2.ReadWriteGroupMember		'tom'
-3.SVNSRCPath			'/SYS/new/branch'
-4.SVNRootPath			'/root/svn'
+|:-:|:-:|
+|ReadOnlyGroupMember|'tom, jack'|
+|ReadWriteGroupMember|'tom'|
+|SVNSRCPath|'/SYS/new/branch'|
+|SVNRootPath|'/root/svn'|
 
 
 
