@@ -1,6 +1,6 @@
-## Modify Authz file
+# Modify Authz file
 
-# Input Value
+## Input Value
 
 |Vars|Example|
 |:-:|:-:|
@@ -12,11 +12,13 @@
 
 
 
-# Add group
+## Add group
+
 ******a = a, b, c
 ******b = e, f, g
 
-# Add group auth
+## Add group auth
+
 [/SYS/new/branch]
 ******a = rw
 ******b = r
