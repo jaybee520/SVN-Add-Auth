@@ -1,0 +1,180 @@
+#!/bin/bash +x
+#
+#   Author                 : Jaybee
+#   Execution method       : authSVN.sh
+#
+#	Input
+#	1.ReadOnlyGroupMember
+#	2.ReadWriteGroupMember
+#	3.SVNSRCPath
+#	4.SVNRootPath
+
+[[  -z ${ReadOnlyGroupMember}   ]] && echo 'ReadOnlyGroupMember is null' && exit 1
+[[  -z ${ReadWriteGroupMember}    ]] && echo 'ReadWriteGroupMember is null' && exit 1
+[[  -z ${SVNSRCPath}   ]] && echo 'SVNSRCPath is null' && exit 1
+[[  -z ${SVNRootPath}   ]] && echo 'SVNRootPath is null' && exit 1
+
+
+AuthzBackupPath='backup_auth'
+DescriptionAuthor='Scripts'
+
+getAuthFilePath() {
+  svnRootPath=$1
+  #get svnserve.conf full path
+  svnserveFullPath="${svnRootPath}/conf/svnserve.conf"
+  [[ ${svnserveFullPath} == ${svnRootPath} ]] && "Get authz path from ${svnserveFullPath} failed" && exit 1
+
+  #get authz-db members
+  authzdbMember=$(cat ${svnserveFullPath} | grep "^authz-db" | cut -d '=' -f 2)
+  #ignore space
+  authzFullPath=$(echo ${authzdbMember})
+  echo "${svnRootPath}/conf/${authzFullPath}"
+}
+
+getMD5Name() {
+  echo $1|md5sum|cut -d ' ' -f1
+}
+
+getGroupsIndex() {
+  cat $1 -n| grep "\[$2\].*" | grep -v .' ''\[.*\].*'
+}
+
+removeAuthLines() {
+  indexInfo=$1
+  authzPath=$2
+  AuthzIndex=$(getGroupsIndex ${authzPath} '.*')
+  printf "\tIndex\n\t-------------\n${AuthzIndex}\n\t-------------\n"
+
+  #get current&next result
+  currentItemResult=$(echo "${AuthzIndex}"|grep -w "\[${indexInfo}\]")
+  nextItemResult=$(echo "${AuthzIndex}"|grep -w -A 1 "\[${indexInfo}\]"|tail -1)
+  #echo "currentItemResult:${currentItemResult}"
+  #echo "nextItemResult:${nextItemResult}"
+
+  #get current&next result count number
+  currentItemResultCount=$(echo "${AuthzIndex}"|grep -w "\[${indexInfo}\]"|wc -l)
+  nextItemResultCount=$(echo "${AuthzIndex}"|grep -w -A 1 "\[${indexInfo}\]"|tail -1|wc -l)
+  #echo "currentItemResultCount:${currentItemResultCount}"
+  #echo "nextItemResultCount:${nextItemResultCount}"
+
+  #get current&next result index
+  currentItemResultIndex=$(echo "${currentItemResult}"|awk '{print $1}')
+  nextItemResultIndex=$(echo "${nextItemResult}"|awk '{print $1}')
+  echo "currentItemIndex:${currentItemResultIndex}"
+  echo "nextItemIndex:${nextItemResultIndex}"
+
+  #find index not exist, return tail line number.
+  if [[ $[ ${currentItemResultCount} + ${nextItemResultCount} ] < 2 ]]; then
+     echo "indexInfo:${indexInfo} not found,Creating repo dir [${indexInfo}]"
+     InsertLineNumber=$(cat ${authzPath} -n | tail -1 | awk '{print $1}')
+  elif [[ $[ ${currentItemResultCount} + ${nextItemResultCount} ] != 2 ]]; then
+     echo "Ooooooooooooooops  !!!!!!!!!!!!!!!!!!!!!!!!!  Find more items!"
+     InsertLineNumber=''
+  else
+    #if currentItemResult equal nextItemResult the meaning of file tail
+    if [[ ${currentItemResultIndex} == ${nextItemResultIndex} ]]; then
+      echo "insertLines: ${currentItemResultIndex},\$d"
+      sed -i "${currentItemResultIndex},\$d" ${authzPath}
+    else
+      echo "insertLines: ${currentItemResultIndex},$[ ${nextItemResultIndex} - 1 ]d"
+      sed -i "${currentItemResultIndex},$[ ${nextItemResultIndex} - 1 ]d" ${authzPath}
+    fi
+    InsertLineNumber=${currentItemResultIndex}
+  fi
+}
+
+getDescription() {
+  echo "\n# TIME STAMP: $(date +%Y-%m-%d' '%H:%m:%S)   CREATED BY: ${DescriptionAuthor}"
+}
+
+isExistReturnGroupString() {
+  GroupNum=$(cat $1 | grep "^$2"|wc -l)
+  if [[ $GroupNum == 0 ]]; then
+    echo "$2 = $3"'\n'
+  else
+    echo ''
+  fi
+}
+
+addGroupLines() {
+
+  readOnlyGroupName=$1
+  readWriteGroupName=$2
+  authzPath=$3
+
+  #get group string
+  ReadOnlyGroupString=$(isExistReturnGroupString ${authzPath} ${readOnlyGroupName} ${ReadOnlyGroupMember})
+  ReadWriteGroupString=$(isExistReturnGroupString ${authzPath} ${readWriteGroupName} ${ReadWriteGroupMember})
+
+  #get [Groups] line number
+  GroupsTagLineNumber=$(echo $(getGroupsIndex ${authzPath} 'groups')|awk '{print $1}')
+
+  if [[ ${ReadOnlyGroupName} == ${ReadWriteGroupName} ]]; then
+    ReadOnlyGroupString=''
+  fi
+
+  GroupInfoReplaceString="${ReadOnlyGroupString}${ReadWriteGroupString}"
+  echo "ReadOnlyGroupString:$ReadOnlyGroupString"
+  echo "ReadWriteGroupString:$ReadWriteGroupString"
+
+  #add group
+  if [[ (${ReadOnlyGroupString} == '') && (${ReadWriteGroupString} == '') ]]; then
+    echo "ReadOnlyGroupString is equal ReadWriteGroupString"
+  else
+    sed -i "${GroupsTagLineNumber}"'a\'"$(getDescription)\n${GroupInfoReplaceString}" ${authzPath}
+  fi
+
+}
+
+addAuthLines() {
+  #get auth string
+  ReadOnlyAuthString="@$1 = r"'\n'
+  ReadWriteAuthString="@$2 = rw"'\n'
+  authzPath=$3
+
+  AuthInfoReplaceString="${ReadOnlyAuthString}${ReadWriteAuthString}"
+  echo "ReadOnlyAuthString:$ReadOnlyAuthString"
+  echo "ReadWriteAuthString:${ReadWriteAuthString}"
+
+  #add auth
+  sed -i '$a\'"\n[${SVNSRCPath}]$(getDescription)\n${AuthInfoReplaceString}" ${AuthzPath}
+
+}
+
+backupAuth() {
+  authzPath=$1
+  if [[ "${AuthzBackupPath}" = /* ]]; then
+    backupDirPath="${AuthzBackupPath}"
+    backupFilePath="${backupDirPath}/authz.$(date +%Y%m%d%H%m%S)"
+  else
+    backupDirPath="$(dirname ${authzPath})/${AuthzBackupPath}"
+    backupFilePath="${backupDirPath}/authz.$(date +%Y%m%d%H%m%S)"
+  fi
+
+  mkdir -p "${backupDirPath}"
+  cp -rp "${authzPath}" "${backupFilePath}"
+  echo "Backup: ${backupFilePath}"
+}
+
+
+#get group name by md5sum
+ReadOnlyGroupName=$(getMD5Name ${ReadOnlyGroupMember})
+ReadWriteGroupName=$(getMD5Name ${ReadWriteGroupMember})
+
+#get authzPath
+echo '---------getAuthzPath---------'
+AuthzPath=$(getAuthFilePath "${SVNRootPath}")
+echo "AuthzPath:${AuthzPath}"
+
+echo '---------backupAuth---------'
+backupAuth "${AuthzPath}" || exit 1
+
+echo '---------removeAuthLines---------'
+removeAuthLines "${SVNSRCPath}" "${AuthzPath}" || exit 1
+
+echo '---------addGroupLines---------'
+addGroupLines "${ReadOnlyGroupName}" "${ReadWriteGroupName}" "${AuthzPath}" || exit 1
+
+echo '---------addAuthLines---------'
+addAuthLines "${ReadOnlyGroupName}" "${ReadWriteGroupName}" "${AuthzPath}" || exit 1
+
